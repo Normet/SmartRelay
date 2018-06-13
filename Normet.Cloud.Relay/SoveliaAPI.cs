@@ -29,6 +29,7 @@ namespace Normet.Cloud.Relay
             username = _username;
             password = _password;
             baseuri = $"{_protocol}://{_hostname}:{_port}{_basepath}";
+            Login(_username, _password, _protocol, _hostname, _port, _basepath);
         }
 
         public string Login(
@@ -89,8 +90,14 @@ namespace Normet.Cloud.Relay
             return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?minbasket=1"}");
         }
 
-        public string RevisedIBs(string revDate = "[-7d]-*")
+        public string Search(string criterias, string basket)
         {
+            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?" + basket}");
+        }
+
+        public List<CustomerAsset> GetAllAssets(string revDate = "[-7d]-*")
+        {
+            List<CustomerAsset> customerAssetList = new List<CustomerAsset>();
             JObject query = JObject.FromObject(new
             {
                 criterias = new[]
@@ -104,34 +111,180 @@ namespace Normet.Cloud.Relay
                 }
             });
 
-            var searchResult = Search(query.ToString());
+            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=CUSTOMER,BASEITEMCODE,BASEITEMREVISION,DocID,MODEL,CUSTOMERSERIALNUMBER,SERIALNUMBER,REALENGINEHOURS,CURRENTCUSTOMER,MINEORTUNNELSITE,STARTUPDATE");
 
             var ibs = JObject.Parse(searchResult);
             if(ibs["result"]["dto"].Count()>0)
             {
-                foreach (var field in ibs["result"]?["dto"]?["objects"]?[0].SelectTokens("$..fields[?(@.name=='CUSTOMER' || @.name=='BASEITEMCODE')]"))
+                foreach (var ib in ibs["result"]?["dto"]?["objects"])
                 {
-                    
-
+                    var customerAsset = new CustomerAsset() {
+                        Customer = ib.GetStringValue("CUSTOMER"),
+                        ItemCode = ib.GetStringValue("BASEITEMCODE"),
+                        ItemRev = ib.GetStringValue("BASEITEMREVISION"),
+                        DocId = ib.GetStringValue("DocID"),
+                        Model = ib.GetStringValue("MODEL"),
+                        CustomerSerialNumber = ib.GetStringValue("CUSTOMERSERIALNUMBER"),
+                        SerialNumber = ib.GetStringValue("SERIALNUMBER"),
+                        RealEngineHours = ib.GetStringValue("REALENGINEHOURS"),
+                        CurrentCustomer = ib.GetStringValue("CURRENTCUSTOMER"),
+                        Site = ib.GetStringValue("MINEORTUNNELSITE"),
+                        StartupDate = ib.GetStringValue("STARTUPDATE")
+                    };
+                    customerAsset.Modules = GetAssetModules(customerAsset.DocId);
+                    customerAssetList.Add(customerAsset);
                 }
             }
-
-            return searchResult;
+            return customerAssetList;
         }
-        public string IBModules(string ibDocId)
+
+        public List<AssetModule> GetAssetModules(string id)
         {
+            var assetModules = new List<AssetModule>();
+            var asset = new AssetModule()
+            {
+                ItemNumber = id,
+                Description = "General maintenance service module"
+            };
+            asset.AddServiceTaskRange(GetModuleServices(id));
+            assetModules.Add(asset);
+
             JObject query = JObject.FromObject(new
             {
                 criterias = new[]
                 {
-                    new { name = "linkto", value = new []{ $"{ibDocId}" } },
-                    new { name = "Typetree", value = new [] { "Service,Service Item" } }
+                    new { name = "linkto", value = new []{ $"{id}" } },
+                    new { name = "Typetree", value = new [] { "Service Module" } }
                 }
             });
 
-            return Search(query.ToString());
+            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr");
+            var ibs = JObject.Parse(searchResult);
+            if (ibs["result"]["dto"].Count() > 0)
+            {
+                foreach (var ib in ibs["result"]?["dto"]?["objects"])
+                {
+                    var x = ib["baskets"][0];
+                    var docId = x.GetStringValue("DocID");
+                    asset = new AssetModule()
+                    {
+                        ItemNumber = $"{docId}",
+                        Description = x.GetStringValue("DocDescr")
+                    };
+                    asset.AddServiceTaskRange(GetSubModuleServices(docId));
+                    assetModules.Add(asset);
+                }
+            }
+
+            return assetModules;
+        }
+
+        public List<ServiceTask> GetSubModuleServices(string id)
+        {
+            var serviceTasks = new List<ServiceTask>();
+
+            JObject query = JObject.FromObject(new
+            {
+                criterias = new[]
+                {
+                    new { name = "linkto", value = new []{ $"{id}" } },
+                    new { name = "HasChildren", value = new [] { $"true" } },
+                    new { name = "Typetree", value = new [] { "Installed base management,Components,Other components" } },
+
+                }
+            });
+
+            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren");
+            var ibs = JObject.Parse(searchResult);
+            if (ibs["result"]["dto"].Count() > 0)
+            {
+                foreach (var ib in ibs["result"]?["dto"]?["objects"])
+                {
+                    var x = ib["baskets"][0];
+                    string docid = x.GetStringValue("DocID");                    
+
+                    serviceTasks.AddRange(GetModuleServices(docid));
+                }
+            }
+
+            return serviceTasks;
+        }
+
+        public List<ServiceTask> GetModuleServices(string id)
+        {
+            List<ServiceTask> moduleServices = new List<ServiceTask>();
+            JObject query = JObject.FromObject(new
+            {
+                criterias = new[]
+                {
+                    new { name = "linkto", value = new []{ $"{id}" } },
+                    new { name = "Typetree", value = new [] { "Service Item" } }
+                }
+            });
+
+            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren,SERVICETYPE, SERVICECATEGORY,SERVICESEQUENCE,SERVICEDURATION");
+            var ibs = JObject.Parse(searchResult);
+            if (ibs["result"]["dto"].Count() > 0)
+            {
+                foreach (var ib in ibs["result"]?["dto"]?["objects"])
+                {
+                    var x = ib["baskets"][0];
+                    var service = new ServiceTask()
+                    {
+                        Id = x.GetStringValue("DocID"),
+                        Rev = x.GetStringValue("DocRev"),
+                        DocDescr = x.GetStringValue("DocDescr"),
+                        HasChildren = x.GetStringValue("HasChildren"),
+                        ServiceType = x.GetStringValue("SERVICETYPE"),
+                        ServiceCategory = x.GetStringValue("SERVICECATEGORY"),
+                        ServiceSequence = x.GetStringValue("SERVICESEQUENCE"),
+                        ServiceDuration = x.GetStringValue("SERVICEDURATION")
+                    };
+                    moduleServices.Add(service);
+
+                    if(service.HasChildren == "true")
+                    {
+                        service.Items = GetServiceItem(service.Id);
+                    }
+                }
+            }
+
+            return moduleServices;
+        }
+
+        public List<ServiceItem> GetServiceItem(string id)
+        {
+            List<ServiceItem> items = new List<ServiceItem>();
+            JObject query = JObject.FromObject(new
+            {
+                criterias = new[]
+                {
+                    new { name = "linkto", value = new []{ $"{id}" } }
+                }
+            });
+
+            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,QTY,SEARCHNAME_EN");
+            var ibs = JObject.Parse(searchResult);
+            if (ibs["result"]["dto"].Count() > 0)
+            {
+                foreach (var ib in ibs["result"]?["dto"]?["objects"])
+                {
+                    var x = ib["baskets"][0];
+                    var item = new ServiceItem()
+                    {
+                        ItemNumber = x.GetStringValue("DocID"),
+                        ItemName = x.GetStringValue("DocDescr"),
+                        Description = x.GetStringValue("SEARCHNAME_EN"),
+                        Qty = x.GetStringValue("QTY")
+                    };
+                    items.Add(item);
+                }
+            }
+
+            return items;
         }
 
 
     }
 }
+
