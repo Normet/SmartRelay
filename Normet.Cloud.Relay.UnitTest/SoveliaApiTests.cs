@@ -11,24 +11,7 @@ namespace Normet.Cloud.Relay.UnitTest
 
         public SoveliaApiTests()
         {
-            api = new SoveliaApi("era", "era1234");
-        }
-
-        [TestMethod]
-        public void LoginTest()
-        {
-            var response = api.Login("era", "era1234");
-
-            Assert.IsTrue(!string.IsNullOrEmpty(response), $"what just happened {string.IsNullOrEmpty(response)}");
-        }
-
-        [TestMethod]
-        public void RevisedIBsTest()
-        {
-            var response = api.Login("era", "era1234");
-            response = api.RevisedIBs();
-
-            Assert.IsTrue(!string.IsNullOrEmpty(response));
+            api = new SoveliaApi("http://fi-sov-test:8080/auric/api/");
         }
     }
 }

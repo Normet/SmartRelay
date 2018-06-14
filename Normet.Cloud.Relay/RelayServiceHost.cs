@@ -19,18 +19,14 @@ namespace Normet.Cloud.Relay
 
     public class RelayService
     {
-        public void Configuration(IAppBuilder appBuilder)
+        public void Configuration(IAppBuilder app)
         {
-            HttpConfiguration config = new HttpConfiguration();
-
-            config.Formatters.Add(new BrowserJsonFormatter());
-            config.Routes.MapHttpRoute(
-                name: "Sovelia",
-                routeTemplate: "api/{controller}/{id}",
-                defaults: new { id = RouteParameter.Optional }
-            );
-
-            appBuilder.UseWebApi(config);
+            app.Map("/api/sovelia",map => {
+                var config = new HttpConfiguration();
+                config.MapHttpAttributeRoutes();
+                config.EnsureInitialized();
+                map.UseWebApi(config);
+            });
         }
     }
 

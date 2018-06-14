@@ -10,46 +10,40 @@ namespace Normet.Cloud.Relay
 {
     public class SoveliaApi
     {
-        string username, password, baseuri;
+        string username, password, baseuri, token;
         JObject auth;
 
+        #region Constructors
         public SoveliaApi()
         {
             throw new Exception("Do not use default constructor");
         }
-
         public SoveliaApi(
-            string _username,
-            string _password,
-            string _protocol = "http",
-            string _hostname = "fi-sov-test",
-            string _port = "8080",
-            string _basepath = "/auric/api/rest")
+            string _uri)
         {
-            username = _username;
-            password = _password;
-            baseuri = $"{_protocol}://{_hostname}:{_port}{_basepath}";
-            Login(_username, _password, _protocol, _hostname, _port, _basepath);
+            username = "era";
+            password = "era1234";
+            baseuri = $"http://{_uri}/auric/api/rest";
+            Login(username, password, baseuri);
         }
+        #endregion
 
+        #region Login
         public string Login(
             string username,
             string password,
-            string protocol = "http",
-            string hostname = "fi-sov-test",
-            string port = "8080",
-            string basepath = "/auric/api/rest")
+            string uri
+            )
         {
-            var client = new RestClient($"{protocol}://{hostname}:{port}{basepath}/user/login");
+            var client = new RestClient($"{uri}/user/login");
             var request = new RestRequest(Method.POST);
             request.AddHeader("Cache-Control", "no-cache");
             request.AddHeader("Content-Type", "application/x-www-form-urlencoded");
             request.AddParameter("undefined", string.Format($"username={username}&password={password}&longsession=true"), ParameterType.RequestBody);
             IRestResponse response = client.Execute(request);
 
-
             auth = JObject.Parse(response.Content);
-            if(auth.ContainsKey("httpCode"))
+            if (auth.ContainsKey("httpCode"))
             {
                 var httpCode = (string)auth["httpCode"];
                 switch ($"{auth["httpCode"]}")
@@ -62,10 +56,22 @@ namespace Normet.Cloud.Relay
                         break;
                 }
             }
-
             return auth.ToString();
         }
+        #endregion
 
+        #region Search
+        public string Search(
+            string criterias)
+        {
+            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?minbasket=1"}");
+        }
+        public string Search(
+            string criterias,
+            string basket)
+        {
+            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?" + basket}");
+        }
         public string Search(
             string criterias,
             string token,
@@ -84,18 +90,11 @@ namespace Normet.Cloud.Relay
             JObject searchResult = JObject.Parse(response.Content);
             return searchResult.ToString();
         }
+        #endregion
 
-        public string Search(string criterias)
-        {
-            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?minbasket=1"}");
-        }
-
-        public string Search(string criterias, string basket)
-        {
-            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?" + basket}");
-        }
-
-        public List<CustomerAsset> GetAllAssets(string revDate = "[-7d]-*")
+        public List<CustomerAsset> GetAllAssets(
+            string revDate = "[-7d]-*",
+            bool cascade = false)
         {
             List<CustomerAsset> customerAssetList = new List<CustomerAsset>();
             JObject query = JObject.FromObject(new
@@ -131,14 +130,18 @@ namespace Normet.Cloud.Relay
                         Site = ib.GetStringValue("MINEORTUNNELSITE"),
                         StartupDate = ib.GetStringValue("STARTUPDATE")
                     };
-                    customerAsset.Modules = GetAssetModules(customerAsset.DocId);
+                    if (cascade)
+                    {
+                        customerAsset.Modules = GetAssetModules(customerAsset.DocId);
+                    }
                     customerAssetList.Add(customerAsset);
                 }
             }
             return customerAssetList;
         }
 
-        public List<AssetModule> GetAssetModules(string id)
+        public List<AssetModule> GetAssetModules(
+            string id)
         {
             var assetModules = new List<AssetModule>();
             var asset = new AssetModule()
@@ -179,7 +182,8 @@ namespace Normet.Cloud.Relay
             return assetModules;
         }
 
-        public List<ServiceTask> GetSubModuleServices(string id)
+        public List<ServiceTask> GetSubModuleServices(
+            string id)
         {
             var serviceTasks = new List<ServiceTask>();
 
@@ -210,7 +214,8 @@ namespace Normet.Cloud.Relay
             return serviceTasks;
         }
 
-        public List<ServiceTask> GetModuleServices(string id)
+        public List<ServiceTask> GetModuleServices(
+            string id)
         {
             List<ServiceTask> moduleServices = new List<ServiceTask>();
             JObject query = JObject.FromObject(new
@@ -252,7 +257,8 @@ namespace Normet.Cloud.Relay
             return moduleServices;
         }
 
-        public List<ServiceItem> GetServiceItem(string id)
+        public List<ServiceItem> GetServiceItem(
+            string id)
         {
             List<ServiceItem> items = new List<ServiceItem>();
             JObject query = JObject.FromObject(new
@@ -283,7 +289,6 @@ namespace Normet.Cloud.Relay
 
             return items;
         }
-
 
     }
 }
