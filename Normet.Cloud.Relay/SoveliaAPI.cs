@@ -10,39 +10,38 @@ namespace Normet.Cloud.Relay
 {
     public class SoveliaApi
     {
-        string username, password, baseuri, token;
-        JObject auth;
+        private static string EQUIPMENT = "Installed base management,Equipment";
+        private static string SERVICEMODULE = "Installed base management,Services,Modules";
+        private static string SERVICEITEM = "Installed base management,Services,Tasks";
 
-        #region Constructors
-        public SoveliaApi()
-        {
-            throw new Exception("Do not use default constructor");
-        }
-        public SoveliaApi(
-            string _uri)
-        {
-            username = "era";
-            password = "era1234";
-            baseuri = $"http://{_uri}/auric/api/rest";
-            Login(username, password, baseuri);
-        }
-        #endregion
-
-        #region Login
-        public string Login(
-            string username,
-            string password,
-            string uri
+        private static string GetServiceUri(
+            string hostname
             )
         {
-            var client = new RestClient($"{uri}/user/login");
+            return $"http://{hostname}/auric/api/rest";
+        }
+
+        #region Login
+        /// <summary>
+        /// Login to the sovelia and returns the authentication object
+        /// </summary>
+        /// <param name="username">Username</param>
+        /// <param name="password">Password</param>
+        /// <param name="hostname">Sovelia hostname with port ServerName:Port</param>
+        /// <returns></returns>
+        public static string Login(
+            string username,
+            string password,
+            string hostname)
+        {
+            var client = new RestClient($"{GetServiceUri(hostname)}/user/login");
             var request = new RestRequest(Method.POST);
             request.AddHeader("Cache-Control", "no-cache");
             request.AddHeader("Content-Type", "application/x-www-form-urlencoded");
             request.AddParameter("undefined", string.Format($"username={username}&password={password}&longsession=true"), ParameterType.RequestBody);
             IRestResponse response = client.Execute(request);
 
-            auth = JObject.Parse(response.Content);
+            var auth = JObject.Parse(response.Content);
             if (auth.ContainsKey("httpCode"))
             {
                 var httpCode = (string)auth["httpCode"];
@@ -52,7 +51,7 @@ namespace Normet.Cloud.Relay
                         auth.Add("token", $"{response.Headers.FirstOrDefault(i => i.Name == "X-Access-Token").Value}");
                         auth.Add("dateTime", DateTime.Now);
                         auth.Add("cookies", JArray.FromObject(response.Cookies));
-                        auth.Add("uri", $"{baseuri + "/user/login"}");
+                        auth.Add("baseuri", $"{GetServiceUri(hostname)}");
                         break;
                 }
             }
@@ -61,26 +60,22 @@ namespace Normet.Cloud.Relay
         #endregion
 
         #region Search
-        public string Search(
-            string criterias)
-        {
-            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?minbasket=1"}");
-        }
-        public string Search(
+        public static string Search(
+            string auth,
             string criterias,
-            string basket)
+            string basket = "minbasket=1")
         {
-            return Search(criterias, $"{auth["token"]}", $"{ baseuri + "/search?" + basket}");
+            return Search(JObject.Parse(auth), criterias, basket);
         }
-        public string Search(
-            string criterias,
-            string token,
-            string uri)
+        public static string Search(
+            JObject auth, 
+            string criterias, 
+            string basket = "minbasket=1")
         {
-            var client = new RestClient($"{uri}");
+            var client = new RestClient($"{auth["baseuri"]}/search?{basket}");
             var request = new RestRequest(Method.POST);
             request.AddHeader("Content-Type", "application/json");
-            request.AddHeader("X-Access-Token", $"{token}");
+            request.AddHeader("X-Access-Token", $"{auth["token"]}");
             request.AddParameter("undefined", $"{criterias}", ParameterType.RequestBody);
             foreach(var cookie in auth["cookies"])
             {
@@ -92,7 +87,8 @@ namespace Normet.Cloud.Relay
         }
         #endregion
 
-        public List<CustomerAsset> GetAllAssets(
+        public static List<CustomerAsset> GetAllAssets(
+            string auth,
             string revDate = "[-7d]-*",
             bool cascade = false)
         {
@@ -101,23 +97,25 @@ namespace Normet.Cloud.Relay
             {
                 criterias = new[]
                 {
-                    new { name = "Typetree", value = new []{ "Installed base management,Equipment" } },
+                    new { name = "Typetree", value = new []{ EQUIPMENT } },
                     new { name = "HasParents", value = new [] { "false" } },
                     new { name = "HasChildren", value = new [] { "true" } },
                     new { name = "StatLatestRel", value = new [] { "true" } },
                     new { name = "LastRev", value = new [] { "true" } },
-                    new { name = "RevDate", value = new [] { $"{revDate}" } }
+                    new { name = "RevDate", value = new [] { $"{revDate}" } },
+                    new {name="StatusDescription", value=new[] {"Checked"}}
                 }
             });
 
-            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=CUSTOMER,BASEITEMCODE,BASEITEMREVISION,DocID,MODEL,CUSTOMERSERIALNUMBER,SERIALNUMBER,REALENGINEHOURS,CURRENTCUSTOMER,MINEORTUNNELSITE,STARTUPDATE");
+            var searchResult = Search(auth, query.ToString(), "minbasket=1&superbasket=CUSTOMER,BASEITEMCODE,BASEITEMREVISION,MODEL,CUSTOMERSERIALNUMBER,SERIALNUMBER,REALENGINEHOURS,CURRENTCUSTOMER,MINEORTUNNELSITE,STARTUPDATE,VEHICLEUSAGESTATUS");
 
             var ibs = JObject.Parse(searchResult);
-            if(ibs["result"]["dto"].Count()>0)
+            if (ibs["result"]["dto"].Count() > 0)
             {
                 foreach (var ib in ibs["result"]?["dto"]?["objects"])
                 {
-                    var customerAsset = new CustomerAsset() {
+                    var customerAsset = new CustomerAsset()
+                    {
                         Customer = ib.GetStringValue("CUSTOMER"),
                         ItemCode = ib.GetStringValue("BASEITEMCODE"),
                         ItemRev = ib.GetStringValue("BASEITEMREVISION"),
@@ -128,11 +126,12 @@ namespace Normet.Cloud.Relay
                         RealEngineHours = ib.GetStringValue("REALENGINEHOURS"),
                         CurrentCustomer = ib.GetStringValue("CURRENTCUSTOMER"),
                         Site = ib.GetStringValue("MINEORTUNNELSITE"),
-                        StartupDate = ib.GetStringValue("STARTUPDATE")
+                        StartupDate = ib.GetStringValue("STARTUPDATE"),
+                        VehicleUsageStatus = ib.GetStringValue("VEHICLEUSAGESTATUS")
                     };
                     if (cascade)
                     {
-                        customerAsset.Modules = GetAssetModules(customerAsset.DocId);
+                        customerAsset.Modules = GetAssetModules(auth, customerAsset.DocId);
                     }
                     customerAssetList.Add(customerAsset);
                 }
@@ -140,7 +139,8 @@ namespace Normet.Cloud.Relay
             return customerAssetList;
         }
 
-        public List<AssetModule> GetAssetModules(
+        public static List<AssetModule> GetAssetModules(
+            string auth,
             string id)
         {
             var assetModules = new List<AssetModule>();
@@ -149,7 +149,7 @@ namespace Normet.Cloud.Relay
                 ItemNumber = id,
                 Description = "General maintenance service module"
             };
-            asset.AddServiceTaskRange(GetModuleServices(id));
+            asset.AddServiceTaskRange(GetModuleServices(auth, id));
             assetModules.Add(asset);
 
             JObject query = JObject.FromObject(new
@@ -157,11 +157,11 @@ namespace Normet.Cloud.Relay
                 criterias = new[]
                 {
                     new { name = "linkto", value = new []{ $"{id}" } },
-                    new { name = "Typetree", value = new [] { "Service Module" } }
+                    new { name = "Typetree", value = new [] { SERVICEMODULE } }
                 }
             });
 
-            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr");
+            var searchResult = Search(auth, query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr");
             var ibs = JObject.Parse(searchResult);
             if (ibs["result"]["dto"].Count() > 0)
             {
@@ -174,7 +174,7 @@ namespace Normet.Cloud.Relay
                         ItemNumber = $"{docId}",
                         Description = x.GetStringValue("DocDescr")
                     };
-                    asset.AddServiceTaskRange(GetSubModuleServices(docId));
+                    asset.AddServiceTaskRange(GetSubModuleServices(auth, docId));
                     assetModules.Add(asset);
                 }
             }
@@ -182,7 +182,8 @@ namespace Normet.Cloud.Relay
             return assetModules;
         }
 
-        public List<ServiceTask> GetSubModuleServices(
+        public static List<ServiceTask> GetSubModuleServices(
+            string auth,
             string id)
         {
             var serviceTasks = new List<ServiceTask>();
@@ -198,7 +199,7 @@ namespace Normet.Cloud.Relay
                 }
             });
 
-            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren");
+            var searchResult = Search(auth, query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren");
             var ibs = JObject.Parse(searchResult);
             if (ibs["result"]["dto"].Count() > 0)
             {
@@ -207,14 +208,15 @@ namespace Normet.Cloud.Relay
                     var x = ib["baskets"][0];
                     string docid = x.GetStringValue("DocID");                    
 
-                    serviceTasks.AddRange(GetModuleServices(docid));
+                    serviceTasks.AddRange(GetModuleServices(auth, docid));
                 }
             }
 
             return serviceTasks;
         }
 
-        public List<ServiceTask> GetModuleServices(
+        public static List<ServiceTask> GetModuleServices(
+            string auth,
             string id)
         {
             List<ServiceTask> moduleServices = new List<ServiceTask>();
@@ -223,11 +225,11 @@ namespace Normet.Cloud.Relay
                 criterias = new[]
                 {
                     new { name = "linkto", value = new []{ $"{id}" } },
-                    new { name = "Typetree", value = new [] { "Service Item" } }
+                    new { name = "Typetree", value = new [] { SERVICEITEM } }
                 }
             });
 
-            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren,SERVICETYPE, SERVICECATEGORY,SERVICESEQUENCE,SERVICEDURATION");
+            var searchResult = Search(auth, query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,HasChildren,SERVICETYPE, SERVICECATEGORY,SERVICESEQUENCE,SERVICEDURATION");
             var ibs = JObject.Parse(searchResult);
             if (ibs["result"]["dto"].Count() > 0)
             {
@@ -241,7 +243,7 @@ namespace Normet.Cloud.Relay
                         DocDescr = x.GetStringValue("DocDescr"),
                         HasChildren = x.GetStringValue("HasChildren"),
                         ServiceType = x.GetStringValue("SERVICETYPE"),
-                        ServiceCategory = x.GetStringValue("SERVICECATEGORY"),
+                        ServiceCategory = x["fields"][5]["value"][0].ToString(),
                         ServiceSequence = x.GetStringValue("SERVICESEQUENCE"),
                         ServiceDuration = x.GetStringValue("SERVICEDURATION")
                     };
@@ -249,7 +251,7 @@ namespace Normet.Cloud.Relay
 
                     if(service.HasChildren == "true")
                     {
-                        service.Items = GetServiceItem(service.Id);
+                        service.Items = GetServiceItem(auth, service.Id);
                     }
                 }
             }
@@ -257,7 +259,8 @@ namespace Normet.Cloud.Relay
             return moduleServices;
         }
 
-        public List<ServiceItem> GetServiceItem(
+        public static List<ServiceItem> GetServiceItem(
+            string auth,
             string id)
         {
             List<ServiceItem> items = new List<ServiceItem>();
@@ -269,7 +272,7 @@ namespace Normet.Cloud.Relay
                 }
             });
 
-            var searchResult = Search(query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,QTY,SEARCHNAME_EN");
+            var searchResult = Search(auth, query.ToString(), "minbasket=6&superbasket=DocID,DocRev,DocDescr,QTY,SEARCHNAME_EN");
             var ibs = JObject.Parse(searchResult);
             if (ibs["result"]["dto"].Count() > 0)
             {

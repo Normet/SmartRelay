@@ -19,6 +19,7 @@ namespace Normet.Cloud.Relay
         public string CurrentCustomer { get; set; }
         public string Site { get; set; }
         public string StartupDate { get; set; }
+        public string VehicleUsageStatus { get; set; }
         public List<AssetModule> Modules { get; set; }
     }
 
@@ -43,7 +44,13 @@ namespace Normet.Cloud.Relay
         }
         public void AddServiceTask(ServiceTask serviceTask)
         {
-            var code = $"{ItemNumber}-{serviceTask.ServiceType}";
+            if(serviceTask.ServiceCategory.ToLower() == "powertrain" 
+                || serviceTask.ServiceCategory.ToLower() == "transmission")
+            {
+                serviceTask.ServiceCategory = "Transmission & Power Train";
+            }
+
+            var code = $"{ItemNumber}-{serviceTask.ServiceCategory}";
             IncidentType incident;
             if (Incidents == null) Incidents = new List<IncidentType>();
 
@@ -52,7 +59,10 @@ namespace Normet.Cloud.Relay
                 incident = new IncidentType()
                 {
                     Id = code,
-                    Name = code
+                    Name = code,
+                    ItemNumber = $"{ItemNumber}",
+                    ServiceType = $"{serviceTask.ServiceType}",
+                    ServiceCategory = $"{serviceTask.ServiceCategory}"
                 };
                 Incidents.Add(incident);
             }
@@ -68,6 +78,9 @@ namespace Normet.Cloud.Relay
     {
         public string Id { get; set; }
         public string Name { get; set; }
+        public string ServiceCategory { get; set; }
+        public string ServiceType { get; set; }
+        public string ItemNumber { get; set; }
         public List<ServiceTask> ServiceTasks = new List<ServiceTask>();
     }
 

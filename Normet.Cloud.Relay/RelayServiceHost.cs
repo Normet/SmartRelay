@@ -5,18 +5,10 @@ using System.Web.Http;
 using System.Net.Http;
 using System.Net.Http.Formatting;
 using System.Net.Http.Headers;
+using System.Configuration;
 
 namespace Normet.Cloud.Relay
 {
-    public class BrowserJsonFormatter: JsonMediaTypeFormatter
-    {
-        public override void SetDefaultContentHeaders(Type type, HttpContentHeaders headers, MediaTypeHeaderValue mediaType)
-        {
-            base.SetDefaultContentHeaders(type, headers, mediaType);
-            headers.ContentType = new MediaTypeHeaderValue("application/json");            
-        }
-    }
-
     public class RelayService
     {
         public void Configuration(IAppBuilder app)
@@ -35,9 +27,7 @@ namespace Normet.Cloud.Relay
         private IDisposable app;
         public void Start()
         {
-            string baseAddress = "http://localhost:9000/";
-
-            
+            string baseAddress = $"http://{ConfigurationManager.AppSettings["ServiceAddress"]}:{ConfigurationManager.AppSettings["ServicePort"]}/";            
             app = WebApp.Start<RelayService>(url: baseAddress);
         }
 
